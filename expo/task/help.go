@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/gridhead/expo/expo/item"
+	"github.com/tidwall/gjson"
 	"io"
 	"log/slog"
 	"net/http"
@@ -165,4 +167,96 @@ func HTTPForgejoPostSupplicant(base string, data string, password string, want i
 	}
 
 	return string(body), expt
+}
+
+func VerifySrceProject(repodata *item.RepoData) (*item.ProjData, error) {
+	var burl, data string
+	var prms url.Values
+	var expt error
+	var projdata item.ProjData
+	burl = fmt.Sprintf("https://%s/api/0/%s", repodata.RootSrce, repodata.NameSrce)
+	data, expt = HTTPPagureGetSupplicant(burl, prms, repodata.PasswordSrce, 200)
+	if expt != nil {
+		return nil, expt
+	}
+	rsltdict := gjson.Parse(data)
+	projdata = item.ProjData{
+		Id:          int(rsltdict.Get("id").Int()),
+		Name:        rsltdict.Get("fullname").String(),
+		Desc:        rsltdict.Get("description").String(),
+		Link:        rsltdict.Get("full_url").String(),
+		DateCreated: time.Unix(rsltdict.Get("date_created").Int(), 0),
+		DateUpdated: time.Unix(rsltdict.Get("date_modified").Int(), 0),
+	}
+	return &projdata, nil
+}
+
+func VerifyDestProject(repodata *item.RepoData) (*item.ProjData, error) {
+	var burl, data string
+	var prms url.Values
+	var expt error
+	var projdata item.ProjData
+	var date_created, date_updated time.Time
+	burl = fmt.Sprintf("https://%s/api/v1/repos/%s", repodata.RootDest, repodata.NameDest)
+	data, expt = HTTPPagureGetSupplicant(burl, prms, repodata.PasswordDest, 200)
+	if expt != nil {
+		return nil, expt
+	}
+
+	rsltdict := gjson.Parse(data)
+
+	date_created, expt = time.Parse(time.RFC3339, rsltdict.Get("created_at").String())
+	if expt != nil {
+		return nil, expt
+	}
+
+	date_updated, expt = time.Parse(time.RFC3339, rsltdict.Get("updated_at").String())
+	if expt != nil {
+		return nil, expt
+	}
+
+	projdata = item.ProjData{
+		Id:          int(rsltdict.Get("id").Int()),
+		Name:        rsltdict.Get("full_name").String(),
+		Desc:        rsltdict.Get("description").String(),
+		Link:        rsltdict.Get("html_url").String(),
+		DateCreated: date_created,
+		DateUpdated: date_updated,
+	}
+	return &projdata, nil
+}
+
+func VerifyProjects(repodata *item.RepoData) (bool, error) {
+	var rslt bool
+	var expt error
+
+	slog.Log(nil, slog.LevelWarn, "○ Verifying source namespace...")
+	srceproj, expt := VerifySrceProject(repodata)
+	if expt != nil {
+		rslt, expt = false, errors.New(fmt.Sprintf("Source namespace could not be verified. %s", expt.Error()))
+	} else {
+		rslt, expt = true, nil
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ ID.          %s", srceproj.Id))
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Name.        %s", srceproj.Name))
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Description. %s", srceproj.Desc))
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Created on.  %s", srceproj.DateCreated.Format("Mon Jan 2 15:04:05 2006 UTC")))
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Updated on.  %s", srceproj.DateUpdated.Format("Mon Jan 2 15:04:05 2006 UTC")))
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ Source namespace verified"))
+	}
+
+	slog.Log(nil, slog.LevelWarn, "○ Verifying destination namespace...")
+	destproj, expt := VerifyDestProject(repodata)
+	if expt != nil {
+		rslt, expt = false, errors.New(fmt.Sprintf("Destination namespace could not be verified. %s", expt.Error()))
+	} else {
+		rslt, expt = true, nil
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ ID.          %s", destproj.Id))
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Name.        %s", destproj.Name))
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Description. %s", destproj.Desc))
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Created on.  %s", destproj.DateCreated.Format("Mon Jan 2 15:04:05 2006 UTC")))
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Updated on.  %s", destproj.DateUpdated.Format("Mon Jan 2 15:04:05 2006 UTC")))
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ Destination namespace verified"))
+	}
+
+	return rslt, expt
 }

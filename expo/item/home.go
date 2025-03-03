@@ -1,5 +1,9 @@
 package item
 
+import (
+	"time"
+)
+
 type RepoData struct {
 	RootSrce     string
 	NameSrce     string
@@ -9,4 +13,13 @@ type RepoData struct {
 	PasswordDest string
 	UsernameSrce string
 	UsernameDest string
+}
+
+type ProjData struct {
+	Id          int
+	Name        string
+	Desc        string
+	Link        string
+	DateCreated time.Time
+	DateUpdated time.Time
 }

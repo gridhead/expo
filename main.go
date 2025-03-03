@@ -14,9 +14,6 @@ import (
 func main() {
 	var expt error
 
-	// var logger = slog.New(tint.NewHandler(os.Stdout, nil))
-	// slog.SetDefault(logger)
-
 	base.SetLogger()
 
 	var repodata item.RepoData
@@ -118,6 +115,13 @@ func main() {
 			}
 			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("%s", repodata))
 			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("%s", tktsdata))
+
+			var here bool
+			here, expt = task.VerifyProjects(&repodata)
+			if !here {
+				slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ Migration failed. %s", expt.Error()))
+				os.Exit(1)
+			}
 
 			task.FetchTransferQuantity(&repodata, &tktsdata)
 		},
