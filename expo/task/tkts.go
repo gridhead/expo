@@ -16,6 +16,7 @@ func FetchTransferQuantity(repodata *item.RepoData, tktstask *item.TktsTaskData)
 	var burl, data string
 	var prms url.Values
 	var expt error
+	var quantity int
 
 	burl = fmt.Sprintf("https://%s/api/0/%s/issues", repodata.RootSrce, repodata.NameSrce)
 	prms = url.Values{"status": {"all"}, "per_page": {strconv.Itoa(tktstask.PerPageQuantity)}, "page": {"1"}}
@@ -39,21 +40,22 @@ func FetchTransferQuantity(repodata *item.RepoData, tktstask *item.TktsTaskData)
 
 	for indx := 1; indx < tktstask.PageQuantity+1; indx++ {
 		slog.Log(nil, slog.LevelWarn, fmt.Sprintf("Fetching issue ticket from Page #%d", indx))
-		FetchIssueTicketsFromPage(repodata, tktstask, indx)
+		FetchIssueTicketsFromPage(repodata, tktstask, indx, &quantity)
 	}
+	slog.Log(nil, slog.LevelWarn, fmt.Sprintf("Migrated %d issue ticket(s) out of %d issue ticket(s) successfully", quantity, tktstask.IssueTicketQuantity))
 
 	return true, nil
 }
 
-func FetchIssueTicketsFromPage(repodata *item.RepoData, tktstask *item.TktsTaskData, indx int) {
+func FetchIssueTicketsFromPage(repodata *item.RepoData, tktstask *item.TktsTaskData, indx int, quantity *int) {
 	burl := fmt.Sprintf("https://%s/api/0/%s/issues", repodata.RootSrce, repodata.NameSrce)
 	prms := url.Values{"status": {"all"}, "per_page": {strconv.Itoa(tktstask.PerPageQuantity)}, "page": {strconv.Itoa(indx)}}
 	dump, expt := HTTPPagureGetSupplicant(burl, prms, repodata.PasswordSrce, 200)
 	if expt != nil {
 		slog.Log(nil, slog.LevelError, fmt.Sprintf("Error occured. %s", expt.Error()))
 	}
-	// data := string(TempReadFileJSON())
 
+	// data := string(TempReadFileJSON())
 	data := gjson.Get(dump, "issues")
 
 	for _, rootdict := range data.Array() {
@@ -122,11 +124,11 @@ func FetchIssueTicketsFromPage(repodata *item.RepoData, tktstask *item.TktsTaskD
 			Comments:    chatobjc,
 		}
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("▶ [#%d] %s by %s (%s) with %d comment(s)", issuesObject.Id, issuesObject.Title, issuesObject.User.FullName, issuesObject.User.Name, len(issuesObject.Comments)))
-		CreateIssueTicket(repodata, tktstask, &issuesObject)
+		CreateIssueTicket(repodata, tktstask, &issuesObject, quantity)
 	}
 }
 
-func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, issuobjc *item.IssueTicketData) {
+func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, issuobjc *item.IssueTicketData, quantity *int) {
 	var htmldict gjson.Result
 	var htmltext string
 	var htmliden int
@@ -181,4 +183,5 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 			}
 		}
 	}
+	*quantity++
 }
