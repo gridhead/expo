@@ -119,11 +119,16 @@ func main() {
 			var here bool
 			here, expt = task.VerifyProjects(&repodata)
 			if !here {
-				slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ Migration failed. %s", expt.Error()))
+				slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ Either source namespace or destination namespace was not found"))
 				os.Exit(1)
+			} else {
+				here, expt = task.FetchTransferQuantity(&repodata, &tktsdata)
+				if expt != nil || here == false {
+					slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ Error occured. %s", expt.Error()))
+					os.Exit(2)
+				}
+				os.Exit(0)
 			}
-
-			task.FetchTransferQuantity(&repodata, &tktsdata)
 		},
 	}
 	tktsTask.Flags().StringVarP(&status, "status", "u", "OPEN", "Extract issue tickets of the mentioned status")

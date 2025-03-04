@@ -99,31 +99,33 @@ func ValidateChoice(data string) ([]int, error) {
 	return list, expt
 }
 
-func HTTPPagureGetSupplicant(base string, prms url.Values, password string, want int) (data string, expt error) {
+func HTTPPagureGetSupplicant(base string, prms url.Values, password string, want int) (string, error) {
 	link := fmt.Sprintf("%s?%s", base, prms.Encode())
-	rqst, expt := http.NewRequest("GET", link, nil)
+	rqst, rqex := http.NewRequest("GET", link, nil)
+	if rqex != nil {
+		return "", rqex
+	}
+
 	rqst.Header.Set("Authorization", fmt.Sprintf("token %s", password))
 	oper := &http.Client{Timeout: 60 * time.Second}
-	resp, expt := oper.Do(rqst)
+	resp, rqex := oper.Do(rqst)
 
-	if expt != nil || resp.StatusCode != want {
-		slog.Log(nil, slog.LevelError, "Failed to retrieve issue tickets from namespace")
-		if expt != nil {
-			slog.Log(nil, slog.LevelError, fmt.Sprintf("Error occured. %s", expt.Error()))
+	if rqex != nil || resp.StatusCode != want {
+		if rqex != nil {
+			return "", rqex
 		}
 		if resp.StatusCode != want {
-			slog.Log(nil, slog.LevelError, fmt.Sprintf("Error occured. %s", resp.Status))
+			return "", errors.New(fmt.Sprintf("%s", resp.Status))
 		}
 	}
 	defer resp.Body.Close()
 
-	body, expt := io.ReadAll(resp.Body)
-	if expt != nil {
-		slog.Log(nil, slog.LevelError, "Failed to retrieve issue tickets from namespace")
-		slog.Log(nil, slog.LevelError, fmt.Sprintf("Error occured. %s", expt.Error()))
+	body, rqex := io.ReadAll(resp.Body)
+	if rqex != nil {
+		return "", rqex
 	}
 
-	return string(body), expt
+	return string(body), nil
 }
 
 // TODO Delete this function once the fetching function has been primed
@@ -136,37 +138,34 @@ func TempReadFileJSON() string {
 }
 
 func HTTPForgejoPostSupplicant(base string, data string, password string, want int) (string, error) {
-	var rslt string
-
 	link := fmt.Sprintf("%s", base)
 
-	rqst, expt := http.NewRequest("POST", link, bytes.NewBuffer([]byte(data)))
-	if expt != nil {
-		return rslt, expt
+	rqst, rqex := http.NewRequest("POST", link, bytes.NewBuffer([]byte(data)))
+	if rqex != nil {
+		return "", rqex
 	}
 
 	rqst.Header.Set("Content-Type", "application/json")
 	rqst.Header.Set("Authorization", fmt.Sprintf("token %s", password))
 	oper := &http.Client{Timeout: 60 * time.Second}
-	resp, expt := oper.Do(rqst)
+	resp, rqex := oper.Do(rqst)
 
-	if expt != nil || resp.StatusCode != want {
-		if expt != nil {
-			return rslt, expt
+	if rqex != nil || resp.StatusCode != want {
+		if rqex != nil {
+			return "", rqex
 		}
 		if resp.StatusCode != want {
-			return rslt, errors.New(fmt.Sprintf("Error occured. %s", resp.Status))
+			return "", errors.New(fmt.Sprintf("%s", resp.Status))
 		}
 	}
 	defer resp.Body.Close()
 
-	body, expt := io.ReadAll(resp.Body)
-	if expt != nil {
-		slog.Log(nil, slog.LevelError, "Failed to retrieve issue tickets from namespace")
-		slog.Log(nil, slog.LevelError, fmt.Sprintf("Error occured. %s", expt.Error()))
+	body, rqex := io.ReadAll(resp.Body)
+	if rqex != nil {
+		return "", rqex
 	}
 
-	return string(body), expt
+	return string(body), nil
 }
 
 func VerifySrceProject(repodata *item.RepoData) (*item.ProjData, error) {
@@ -227,16 +226,17 @@ func VerifyDestProject(repodata *item.RepoData) (*item.ProjData, error) {
 }
 
 func VerifyProjects(repodata *item.RepoData) (bool, error) {
-	var rslt bool
+	var bsrc, bdst bool
 	var expt error
 
 	slog.Log(nil, slog.LevelWarn, "○ Verifying source namespace...")
-	srceproj, expt := VerifySrceProject(repodata)
-	if expt != nil {
-		rslt, expt = false, errors.New(fmt.Sprintf("Source namespace could not be verified. %s", expt.Error()))
+	srceproj, esrc := VerifySrceProject(repodata)
+	if esrc != nil {
+		bsrc, expt = false, errors.New(fmt.Sprintf("%s", esrc.Error()))
+		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ Source namespace could not be verified. %s", expt.Error()))
 	} else {
-		rslt, expt = true, nil
-		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ ID.          %s", srceproj.Id))
+		bsrc, expt = true, nil
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ ID.          %d", srceproj.Id))
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Name.        %s", srceproj.Name))
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Description. %s", srceproj.Desc))
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Created on.  %s", srceproj.DateCreated.Format("Mon Jan 2 15:04:05 2006 UTC")))
@@ -245,12 +245,13 @@ func VerifyProjects(repodata *item.RepoData) (bool, error) {
 	}
 
 	slog.Log(nil, slog.LevelWarn, "○ Verifying destination namespace...")
-	destproj, expt := VerifyDestProject(repodata)
-	if expt != nil {
-		rslt, expt = false, errors.New(fmt.Sprintf("Destination namespace could not be verified. %s", expt.Error()))
+	destproj, edst := VerifyDestProject(repodata)
+	if edst != nil {
+		bdst, expt = false, errors.New(fmt.Sprintf("%s", edst.Error()))
+		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ Destination namespace could not be verified. %s", expt.Error()))
 	} else {
-		rslt, expt = true, nil
-		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ ID.          %s", destproj.Id))
+		bdst, expt = true, nil
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ ID.          %d", destproj.Id))
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Name.        %s", destproj.Name))
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Description. %s", destproj.Desc))
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("○ Created on.  %s", destproj.DateCreated.Format("Mon Jan 2 15:04:05 2006 UTC")))
@@ -258,5 +259,6 @@ func VerifyProjects(repodata *item.RepoData) (bool, error) {
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ Destination namespace verified"))
 	}
 
+	rslt := bsrc && bdst
 	return rslt, expt
 }
