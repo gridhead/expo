@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -54,6 +55,8 @@ func FetchIssueTicketsFromPage(repodata *item.RepoData, tktstask *item.TktsTaskD
 	if expt != nil {
 		slog.Log(nil, slog.LevelError, fmt.Sprintf("Error occured. %s", expt.Error()))
 	}
+
+	var wait sync.WaitGroup
 
 	// data := string(TempReadFileJSON())
 	data := gjson.Get(dump, "issues")
@@ -124,11 +127,15 @@ func FetchIssueTicketsFromPage(repodata *item.RepoData, tktstask *item.TktsTaskD
 			Comments:    chatobjc,
 		}
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("▶ [#%d] %s by %s (%s) with %d comment(s)", issuesObject.Id, issuesObject.Title, issuesObject.User.FullName, issuesObject.User.Name, len(issuesObject.Comments)))
-		CreateIssueTicket(repodata, tktstask, &issuesObject, quantity)
+		wait.Add(1)
+		go CreateIssueTicket(repodata, tktstask, &issuesObject, quantity, &wait)
 	}
+	wait.Wait()
 }
 
-func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, issuobjc *item.IssueTicketData, quantity *int) {
+func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, issuobjc *item.IssueTicketData, quantity *int, wait *sync.WaitGroup) {
+	defer wait.Done()
+
 	var htmldict gjson.Result
 	var htmltext string
 	var htmliden int
@@ -140,46 +147,46 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 	}
 	dict, expt := json.Marshal(data)
 	if expt != nil {
-		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ Migration failed. %s", expt.Error()))
+		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
 	}
 
 	burl := fmt.Sprintf("https://%s/api/v1/repos/%s/issues", repodata.RootDest, repodata.NameDest)
 	for indx := 0; indx < tktstask.Retries; indx++ {
-		slog.Log(nil, slog.LevelDebug, fmt.Sprintf("○ Migrating issue ticket - Attempt #%d of %d", indx+1, tktstask.Retries))
+		slog.Log(nil, slog.LevelDebug, fmt.Sprintf("○ [#%d] Migrating issue ticket - Attempt %d of %d", issuobjc.Id, indx+1, tktstask.Retries))
 		rslt, expt := HTTPForgejoPostSupplicant(burl, string(dict), repodata.PasswordDest, 201)
 		if expt == nil {
 			htmldict = gjson.Parse(rslt)
 			htmltext = htmldict.Get("html_url").String()
 			htmliden = int(htmldict.Get("id").Int())
-			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ The issue ticket has been moved to %s", htmltext))
+			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ [#%d] The issue ticket has been moved to %s", issuobjc.Id, htmltext))
 			break
 		} else {
-			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✗ Migration failed. %s", expt.Error()))
+			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
 		}
 	}
 
 	for numb, unit := range issuobjc.Comments {
-		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("▷ Comment %d of %d by %s (%s)", numb+1, len(issuobjc.Comments), unit.User.FullName, unit.User.Name))
+		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("▷ [#%d] Comment %d of %d by %s (%s)", issuobjc.Id, numb+1, len(issuobjc.Comments), unit.User.FullName, unit.User.Name))
 		data := item.ChatMakeBody{
 			Body: fmt.Sprintf(base.Chattemp, unit.Comment, issuobjc.FullUrl, unit.Id, unit.User.FullName, unit.User.FullUrl, issuobjc.FullUrl, repodata.NameSrce, repodata.RootSrce, repodata.NameSrce, unit.DateCreated.Format("Mon Jan 2 15:04:05 2006 UTC")),
 		}
 		dict, expt := json.Marshal(data)
 		if expt != nil {
-			slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ Migration failed. %s", expt.Error()))
+			slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
 		}
 
 		burl := fmt.Sprintf("https://%s/api/v1/repos/%s/issues/%d/comments", repodata.RootDest, repodata.NameDest, htmliden)
 		for indx := 0; indx < tktstask.Retries; indx++ {
-			slog.Log(nil, slog.LevelDebug, fmt.Sprintf("○ Migrating comment - Attempt #%d of %d", indx+1, tktstask.Retries))
+			slog.Log(nil, slog.LevelDebug, fmt.Sprintf("○ [#%d] Migrating comment - Attempt %d of %d", issuobjc.Id, indx+1, tktstask.Retries))
 			rslt, expt := HTTPForgejoPostSupplicant(burl, string(dict), repodata.PasswordDest, 201)
 			if expt == nil {
 				htmldict = gjson.Parse(rslt)
 				htmltext = htmldict.Get("html_url").String()
 				// htmliden = int(htmldict.Get("id").Int())
-				slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ The comment has been moved to %s", htmltext))
+				slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ [#%d] The comment has been moved to %s", issuobjc.Id, htmltext))
 				break
 			} else {
-				slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✗ Migration failed. %s", expt.Error()))
+				slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
 			}
 		}
 	}
