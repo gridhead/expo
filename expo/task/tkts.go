@@ -138,7 +138,7 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 
 	var htmldict gjson.Result
 	var htmltext string
-	var htmliden int
+	var htmliden, chatnumb int
 
 	data := item.TktsMakeBody{
 		Title:  fmt.Sprintf(base.Headtemp, issuobjc.Id, issuobjc.Title),
@@ -165,6 +165,10 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 		}
 	}
 
+	if htmliden == 0 {
+		return
+	}
+
 	for numb, unit := range issuobjc.Comments {
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("▷ [#%d] Comment %d of %d by %s (%s)", issuobjc.Id, numb+1, len(issuobjc.Comments), unit.User.FullName, unit.User.Name))
 		data := item.ChatMakeBody{
@@ -183,6 +187,7 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 				htmldict = gjson.Parse(rslt)
 				htmltext = htmldict.Get("html_url").String()
 				// htmliden = int(htmldict.Get("id").Int())
+				chatnumb = chatnumb + 1
 				slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ [#%d] The comment has been moved to %s", issuobjc.Id, htmltext))
 				break
 			} else {
@@ -190,5 +195,8 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 			}
 		}
 	}
-	*quantity++
+
+	if chatnumb == len(issuobjc.Comments) {
+		*quantity++
+	}
 }
