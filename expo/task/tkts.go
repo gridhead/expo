@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func FetchTransferQuantity(repodata *item.RepoData, tktstask *item.TktsTaskData) {
+func FetchTransferQuantity(repodata *item.RepoData, tktstask *item.TktsTaskData) (bool, error) {
 	var burl, data string
 	var prms url.Values
 	var expt error
@@ -21,7 +21,7 @@ func FetchTransferQuantity(repodata *item.RepoData, tktstask *item.TktsTaskData)
 	prms = url.Values{"status": {"all"}, "per_page": {strconv.Itoa(tktstask.PerPageQuantity)}, "page": {"1"}}
 	data, expt = HTTPPagureGetSupplicant(burl, prms, repodata.PasswordSrce, 200)
 	if expt != nil {
-		slog.Log(nil, slog.LevelError, fmt.Sprintf("Error occured. %s", expt.Error()))
+		return false, expt
 	}
 	rsltdict := gjson.Get(data, "pagination")
 	tktstask.PageQuantity = int(rsltdict.Get("pages").Int())
@@ -29,7 +29,7 @@ func FetchTransferQuantity(repodata *item.RepoData, tktstask *item.TktsTaskData)
 	prms = url.Values{"status": {"all"}, "per_page": {strconv.Itoa(tktstask.PerPageQuantity)}, "page": {strconv.Itoa(tktstask.PageQuantity)}}
 	data, expt = HTTPPagureGetSupplicant(burl, prms, repodata.PasswordSrce, 200)
 	if expt != nil {
-		slog.Log(nil, slog.LevelError, fmt.Sprintf("Error occured. %s", expt.Error()))
+		return false, expt
 	}
 
 	rsltdict = gjson.Get(data, "total_issues")
@@ -41,6 +41,8 @@ func FetchTransferQuantity(repodata *item.RepoData, tktstask *item.TktsTaskData)
 		slog.Log(nil, slog.LevelWarn, fmt.Sprintf("Fetching issue ticket from Page #%d", indx))
 		FetchIssueTicketsFromPage(repodata, tktstask, indx)
 	}
+
+	return true, nil
 }
 
 func FetchIssueTicketsFromPage(repodata *item.RepoData, tktstask *item.TktsTaskData, indx int) {
