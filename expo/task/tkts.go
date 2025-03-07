@@ -141,6 +141,7 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 	var htmliden, chatnumb int
 	var expt error
 	var dict []byte
+	var waitchat sync.WaitGroup
 	//var work bool
 
 	data := item.TktsMakeBody{
@@ -174,21 +175,21 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 
 	for numb, unit := range issuobjc.Comments {
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("▷ [#%d] Comment %d of %d by %s (%s)", issuobjc.Id, numb+1, len(issuobjc.Comments), unit.User.FullName, unit.User.Name))
-		_, expt = CreateIssueComment(repodata, &unit, issuobjc, &htmliden, &tktstask.Retries, &chatnumb)
-		if expt != nil {
-			slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
-		}
+		waitchat.Add(1)
+		go CreateIssueComment(repodata, &unit, issuobjc, &htmliden, &tktstask.Retries, &chatnumb, &waitchat)
 	}
+	waitchat.Wait()
 
 	if chatnumb == len(issuobjc.Comments) {
 		*quantity++
 	}
 }
 
-func CreateIssueComment(repodata *item.RepoData, unit *item.CommentData, issuobjc *item.IssueTicketData, htmliden *int, retries *int, chatnumb *int) (bool, error) {
+func CreateIssueComment(repodata *item.RepoData, unit *item.CommentData, issuobjc *item.IssueTicketData, htmliden *int, retries *int, chatnumb *int, waitchat *sync.WaitGroup) {
+	defer waitchat.Done()
+
 	var htmldict gjson.Result
 	var htmltext string
-	var done bool
 	var expt error
 
 	data := item.ChatMakeBody{
@@ -209,16 +210,9 @@ func CreateIssueComment(repodata *item.RepoData, unit *item.CommentData, issuobj
 			htmltext = htmldict.Get("html_url").String()
 			*chatnumb = *chatnumb + 1
 			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ [#%d] The comment has been moved to %s", issuobjc.Id, htmltext))
-			done = true
 			break
 		} else {
 			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
 		}
 	}
-
-	if !done {
-		return done, expt
-	}
-
-	return done, nil
 }
