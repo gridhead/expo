@@ -139,13 +139,16 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 	var htmldict gjson.Result
 	var htmltext string
 	var htmliden, chatnumb int
+	var expt error
+	var dict []byte
+	//var work bool
 
 	data := item.TktsMakeBody{
 		Title:  fmt.Sprintf(base.Headtemp, issuobjc.Id, issuobjc.Title),
 		Body:   fmt.Sprintf(base.Bodytemp, issuobjc.Content, issuobjc.FullUrl, repodata.NameSrce, repodata.RootSrce, repodata.NameSrce, issuobjc.User.FullName, issuobjc.User.FullUrl, issuobjc.DateCreated.Format("Mon Jan 2 15:04:05 2006 UTC")),
 		Closed: issuobjc.Closed,
 	}
-	dict, expt := json.Marshal(data)
+	dict, expt = json.Marshal(data)
 	if expt != nil {
 		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
 	}
@@ -171,32 +174,51 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 
 	for numb, unit := range issuobjc.Comments {
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("▷ [#%d] Comment %d of %d by %s (%s)", issuobjc.Id, numb+1, len(issuobjc.Comments), unit.User.FullName, unit.User.Name))
-		data := item.ChatMakeBody{
-			Body: fmt.Sprintf(base.Chattemp, unit.Comment, issuobjc.FullUrl, unit.Id, unit.User.FullName, unit.User.FullUrl, issuobjc.FullUrl, repodata.NameSrce, repodata.RootSrce, repodata.NameSrce, unit.DateCreated.Format("Mon Jan 2 15:04:05 2006 UTC")),
-		}
-		dict, expt := json.Marshal(data)
+		_, expt = CreateIssueComment(repodata, &unit, issuobjc, &htmliden, &tktstask.Retries, &chatnumb)
 		if expt != nil {
 			slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
-		}
-
-		burl := fmt.Sprintf("https://%s/api/v1/repos/%s/issues/%d/comments", repodata.RootDest, repodata.NameDest, htmliden)
-		for indx := 0; indx < tktstask.Retries; indx++ {
-			slog.Log(nil, slog.LevelDebug, fmt.Sprintf("○ [#%d] Migrating comment - Attempt %d of %d", issuobjc.Id, indx+1, tktstask.Retries))
-			rslt, expt := HTTPForgejoPostSupplicant(burl, string(dict), repodata.PasswordDest, 201)
-			if expt == nil {
-				htmldict = gjson.Parse(rslt)
-				htmltext = htmldict.Get("html_url").String()
-				// htmliden = int(htmldict.Get("id").Int())
-				chatnumb = chatnumb + 1
-				slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ [#%d] The comment has been moved to %s", issuobjc.Id, htmltext))
-				break
-			} else {
-				slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
-			}
 		}
 	}
 
 	if chatnumb == len(issuobjc.Comments) {
 		*quantity++
 	}
+}
+
+func CreateIssueComment(repodata *item.RepoData, unit *item.CommentData, issuobjc *item.IssueTicketData, htmliden *int, retries *int, chatnumb *int) (bool, error) {
+	var htmldict gjson.Result
+	var htmltext string
+	var done bool
+	var expt error
+
+	data := item.ChatMakeBody{
+		Body: fmt.Sprintf(base.Chattemp, unit.Comment, issuobjc.FullUrl, unit.Id, unit.User.FullName, unit.User.FullUrl, issuobjc.FullUrl, repodata.NameSrce, repodata.RootSrce, repodata.NameSrce, unit.DateCreated.Format("Mon Jan 2 15:04:05 2006 UTC")),
+	}
+	dict, expt := json.Marshal(data)
+	if expt != nil {
+		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
+	}
+
+	burl := fmt.Sprintf("https://%s/api/v1/repos/%s/issues/%d/comments", repodata.RootDest, repodata.NameDest, *htmliden)
+
+	for indx := 0; indx < *retries; indx++ {
+		slog.Log(nil, slog.LevelDebug, fmt.Sprintf("○ [#%d] Migrating comment - Attempt %d of %d", issuobjc.Id, indx+1, *retries))
+		rslt, expt := HTTPForgejoPostSupplicant(burl, string(dict), repodata.PasswordDest, 201)
+		if expt == nil {
+			htmldict = gjson.Parse(rslt)
+			htmltext = htmldict.Get("html_url").String()
+			*chatnumb = *chatnumb + 1
+			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ [#%d] The comment has been moved to %s", issuobjc.Id, htmltext))
+			done = true
+			break
+		} else {
+			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
+		}
+	}
+
+	if !done {
+		return done, expt
+	}
+
+	return done, nil
 }
