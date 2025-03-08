@@ -50,9 +50,11 @@ func FetchTransferQuantity(repodata *item.RepoData, tktstask *item.TktsTaskData)
 
 	slog.Log(nil, slog.LevelWarn, fmt.Sprintf("✓ Found %d issue ticket(s) and %d issue label(s) across %d page(s).", tktstask.IssueTicketQuantity, tktstask.LabelsQuantity, tktstask.PageQuantity))
 
-	_, expt = FetchLabelsInfo(repodata, tktstask)
-	if expt != nil {
-		return false, expt
+	if tktstask.WithLabels {
+		_, expt = FetchLabelsInfo(repodata, tktstask)
+		if expt != nil {
+			return false, expt
+		}
 	}
 
 	for indx := 1; indx < tktstask.PageQuantity+1; indx++ {
@@ -271,9 +273,15 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 	data := item.TktsMakeBody{
 		Title:  fmt.Sprintf(base.Headtemp, issuobjc.Id, issuobjc.Title),
 		Body:   fmt.Sprintf(base.Bodytemp, issuobjc.Content, issuobjc.FullUrl, repodata.NameSrce, repodata.RootSrce, repodata.NameSrce, issuobjc.User.FullName, issuobjc.User.FullUrl, issuobjc.DateCreated.Format("Mon Jan 2 15:04:05 2006 UTC")),
-		Closed: issuobjc.Closed,
 		Labels: tgidlist,
 	}
+
+	if tktstask.WithStatus {
+		data.Closed = issuobjc.Closed
+	} else {
+		data.Closed = false
+	}
+
 	dict, expt = json.Marshal(data)
 
 	if expt != nil {
@@ -300,14 +308,18 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 		return
 	}
 
-	for numb, unit := range issuobjc.Comments {
-		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("▷ [#%d] Comment %d of %d by %s (%s)", issuobjc.Id, numb+1, len(issuobjc.Comments), unit.User.FullName, unit.User.Name))
-		waitchat.Add(1)
-		go CreateIssueComment(repodata, &unit, issuobjc, &htmliden, &tktstask.Retries, &chatnumb, &waitchat)
-	}
-	waitchat.Wait()
+	if tktstask.WithComments {
+		for numb, unit := range issuobjc.Comments {
+			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("▷ [#%d] Comment %d of %d by %s (%s)", issuobjc.Id, numb+1, len(issuobjc.Comments), unit.User.FullName, unit.User.Name))
+			waitchat.Add(1)
+			go CreateIssueComment(repodata, &unit, issuobjc, &htmliden, &tktstask.Retries, &chatnumb, &waitchat)
+		}
+		waitchat.Wait()
 
-	if chatnumb == len(issuobjc.Comments) {
+		if chatnumb == len(issuobjc.Comments) {
+			*quantity++
+		}
+	} else {
 		*quantity++
 	}
 }

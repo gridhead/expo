@@ -63,7 +63,7 @@ func main() {
 	rootTask.MarkPersistentFlagRequired("fusr")
 
 	var tktsdata item.TktsTaskData
-	var status, ranges, choice string
+	var status, ranges, choice, chattext, stattext, tagstext string
 	var comments, labels, commit, secret bool
 	var rmin, rmax int
 	var list []int
@@ -122,6 +122,28 @@ func main() {
 				slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ Either source namespace or destination namespace was not found"))
 				os.Exit(1)
 			} else {
+				if tktsdata.WithComments {
+					chattext = "Issue ticket(s) will be migrated with comment(s)"
+				} else {
+					chattext = "Issue ticket(s) will be migrated without comment(s)"
+				}
+
+				if tktsdata.WithLabels {
+					tagstext = "Issue ticket(s) will be migrated with label(s)"
+				} else {
+					tagstext = "Issue ticket(s) will be migrated without label(s)"
+				}
+
+				if tktsdata.WithStatus {
+					stattext = "Issue ticket(s) will be migrated with status"
+				} else {
+					stattext = "Issue ticket(s) will be migrated without status"
+				}
+
+				slog.Log(nil, slog.LevelWarn, fmt.Sprintf("▷ %s", chattext))
+				slog.Log(nil, slog.LevelWarn, fmt.Sprintf("▷ %s", tagstext))
+				slog.Log(nil, slog.LevelWarn, fmt.Sprintf("▷ %s", stattext))
+
 				here, expt = task.FetchTransferQuantity(&repodata, &tktsdata)
 				if expt != nil || here == false {
 					slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ Error occured. %s", expt.Error()))
@@ -144,6 +166,4 @@ func main() {
 	if expt = rootTask.Execute(); expt != nil {
 		os.Exit(1)
 	}
-
-	//os.Exit(0)
 }
