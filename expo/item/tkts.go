@@ -39,6 +39,7 @@ type TktsTaskData struct {
 	PageQuantity        int
 	IssueTicketQuantity int
 	PerPageQuantity     int
+	LabelsQuantity      int
 	Ranges              IssueTicketRanges
 	Choice              []int
 	Status              string
@@ -47,6 +48,7 @@ type TktsTaskData struct {
 	WithStatus          bool
 	WithSecret          bool
 	Retries             int
+	LabelMap            map[string]int
 }
 
 type TktsMakeBody struct {
@@ -58,4 +60,18 @@ type TktsMakeBody struct {
 
 type ChatMakeBody struct {
 	Body string `json:"body"`
+}
+
+type TagsMakeBody struct {
+	Name        string `json:"name"`
+	Color       string `json:"color"`
+	Description string `json:"description"`
+	Exclusive   bool   `json:"exclusive"`
+	IsArchived  bool   `json:"is_archived"`
+}
+
+type TagsData struct {
+	Name string
+	Tint string
+	Desc string
 }

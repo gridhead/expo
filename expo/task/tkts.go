@@ -2,6 +2,7 @@ package task
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gridhead/expo/expo/base"
 	"github.com/gridhead/expo/expo/item"
@@ -18,6 +19,7 @@ func FetchTransferQuantity(repodata *item.RepoData, tktstask *item.TktsTaskData)
 	var prms url.Values
 	var expt error
 	var quantity int
+	var rsltdict gjson.Result
 
 	burl = fmt.Sprintf("https://%s/api/0/%s/issues", repodata.RootSrce, repodata.NameSrce)
 	prms = url.Values{"status": {"all"}, "per_page": {strconv.Itoa(tktstask.PerPageQuantity)}, "page": {"1"}}
@@ -25,7 +27,7 @@ func FetchTransferQuantity(repodata *item.RepoData, tktstask *item.TktsTaskData)
 	if expt != nil {
 		return false, expt
 	}
-	rsltdict := gjson.Get(data, "pagination")
+	rsltdict = gjson.Get(data, "pagination")
 	tktstask.PageQuantity = int(rsltdict.Get("pages").Int())
 
 	prms = url.Values{"status": {"all"}, "per_page": {strconv.Itoa(tktstask.PerPageQuantity)}, "page": {strconv.Itoa(tktstask.PageQuantity)}}
@@ -37,15 +39,128 @@ func FetchTransferQuantity(repodata *item.RepoData, tktstask *item.TktsTaskData)
 	rsltdict = gjson.Get(data, "total_issues")
 	tktstask.IssueTicketQuantity = tktstask.PerPageQuantity*(tktstask.PageQuantity-1) + int(rsltdict.Int())
 
-	slog.Log(nil, slog.LevelWarn, fmt.Sprintf("Found %d issue ticket(s) across %d page(s).", tktstask.IssueTicketQuantity, tktstask.PageQuantity))
+	burl = fmt.Sprintf("https://%s/api/0/%s/tags", repodata.RootSrce, repodata.NameSrce)
+	data, expt = HTTPPagureGetSupplicant(burl, prms, repodata.PasswordSrce, 200)
+	if expt != nil {
+		return false, expt
+	}
+
+	rsltdict = gjson.Get(data, "total_tags")
+	tktstask.LabelsQuantity = int(rsltdict.Int())
+
+	slog.Log(nil, slog.LevelWarn, fmt.Sprintf("✓ Found %d issue ticket(s) and %d issue label(s) across %d page(s).", tktstask.IssueTicketQuantity, tktstask.LabelsQuantity, tktstask.PageQuantity))
+
+	_, expt = FetchLabelsInfo(repodata, tktstask)
+	if expt != nil {
+		return false, expt
+	}
 
 	for indx := 1; indx < tktstask.PageQuantity+1; indx++ {
-		slog.Log(nil, slog.LevelWarn, fmt.Sprintf("Fetching issue ticket from Page #%d", indx))
+		slog.Log(nil, slog.LevelWarn, fmt.Sprintf("○ Fetching issue ticket(s) from Page #%d", indx))
 		FetchIssueTicketsFromPage(repodata, tktstask, indx, &quantity)
 	}
-	slog.Log(nil, slog.LevelWarn, fmt.Sprintf("Migrated %d issue ticket(s) out of %d issue ticket(s) successfully", quantity, tktstask.IssueTicketQuantity))
+	slog.Log(nil, slog.LevelWarn, fmt.Sprintf("✓ Migrated %d issue ticket(s) out of %d issue ticket(s) successfully", quantity, tktstask.IssueTicketQuantity))
 
 	return true, nil
+}
+
+func FetchLabelsInfo(repodata *item.RepoData, tktstask *item.TktsTaskData) (bool, error) {
+	var burl, data string
+	var prms url.Values
+	var expt error
+	var quantity int
+	var rsltdict gjson.Result
+	var list []string
+	var waittags sync.WaitGroup
+
+	burl = fmt.Sprintf("https://%s/api/0/%s/tags", repodata.RootSrce, repodata.NameSrce)
+	data, expt = HTTPPagureGetSupplicant(burl, prms, repodata.PasswordSrce, 200)
+	if expt != nil {
+		return false, expt
+	}
+
+	rsltdict = gjson.Get(data, "tags")
+	for _, word := range rsltdict.Array() {
+		list = append(list, word.String())
+	}
+
+	tktstask.LabelMap = make(map[string]int)
+	for _, word := range list {
+		waittags.Add(1)
+		go MoveLabelsOver(repodata, tktstask, &quantity, &word, &waittags)
+	}
+	waittags.Wait()
+
+	if quantity != tktstask.LabelsQuantity {
+		return false, errors.New("Fetching labels failed")
+	}
+
+	slog.Log(nil, slog.LevelWarn, fmt.Sprintf("✓ Migrated %d issue label(s) out of %d issue label(s) successfully", quantity, tktstask.LabelsQuantity))
+
+	return true, nil
+}
+
+func MoveLabelsOver(repodata *item.RepoData, tktstask *item.TktsTaskData, quantity *int, word *string, waittags *sync.WaitGroup) {
+	defer waittags.Done()
+
+	var burl, data, htmltext string
+	var prms url.Values
+	var expt error
+	var unit item.TagsData
+	var body item.TagsMakeBody
+	var dict []byte
+	var htmldict gjson.Result
+	var tagsiden int
+	var done bool
+
+	burl = fmt.Sprintf("https://%s/api/0/%s/tag/%s", repodata.RootSrce, repodata.NameSrce, *word)
+	data, expt = HTTPPagureGetSupplicant(burl, prms, repodata.PasswordSrce, 200)
+	if expt != nil {
+		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [%s] Issue label migration failed. %s", *word, expt.Error()))
+		return
+	}
+
+	unit = item.TagsData{
+		Name: gjson.Get(data, "tag").String(),
+		Tint: gjson.Get(data, "tag_color").String(),
+		Desc: gjson.Get(data, "tag_description").String(),
+	}
+
+	burl = fmt.Sprintf("https://%s/api/v1/repos/%s/labels", repodata.RootDest, repodata.NameDest)
+
+	body = item.TagsMakeBody{
+		Name:        unit.Name,
+		Color:       unit.Tint,
+		Description: unit.Desc,
+		Exclusive:   false,
+		IsArchived:  false,
+	}
+
+	dict, expt = json.Marshal(body)
+	if expt != nil {
+		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [%s] Issue label migration failed. %s", *word, expt.Error()))
+		return
+	}
+
+	for indx := 0; indx < tktstask.Retries; indx++ {
+		slog.Log(nil, slog.LevelDebug, fmt.Sprintf("○ [%s] Migrating issue label - Attempt %d of %d", *word, indx+1, tktstask.Retries))
+		rslt, expt := HTTPForgejoPostSupplicant(burl, string(dict), repodata.PasswordDest, 201)
+		if expt == nil {
+			htmldict = gjson.Parse(rslt)
+			htmltext = htmldict.Get("url").String()
+			tagsiden = int(htmldict.Get("id").Int())
+			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ [%s] The issue label has been moved to %s", *word, htmltext))
+			done = true
+			break
+		} else {
+			slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [%s] Issue label migration failed. %s", *word, expt.Error()))
+		}
+	}
+
+	if done {
+		tktstask.LabelMap[*word] = tagsiden
+		*quantity = *quantity + 1
+	}
 }
 
 func FetchIssueTicketsFromPage(repodata *item.RepoData, tktstask *item.TktsTaskData, indx int, quantity *int) {
@@ -142,16 +257,28 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 	var expt error
 	var dict []byte
 	var waitchat sync.WaitGroup
+	var tgidlist []int
 	//var work bool
+
+	for _, unit := range issuobjc.Tags {
+		for jndx, iden := range tktstask.LabelMap {
+			if unit == jndx {
+				tgidlist = append(tgidlist, iden)
+			}
+		}
+	}
 
 	data := item.TktsMakeBody{
 		Title:  fmt.Sprintf(base.Headtemp, issuobjc.Id, issuobjc.Title),
 		Body:   fmt.Sprintf(base.Bodytemp, issuobjc.Content, issuobjc.FullUrl, repodata.NameSrce, repodata.RootSrce, repodata.NameSrce, issuobjc.User.FullName, issuobjc.User.FullUrl, issuobjc.DateCreated.Format("Mon Jan 2 15:04:05 2006 UTC")),
 		Closed: issuobjc.Closed,
+		Labels: tgidlist,
 	}
 	dict, expt = json.Marshal(data)
+
 	if expt != nil {
-		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
+		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [#%d] Issue ticket migration failed. %s", issuobjc.Id, expt.Error()))
+		return
 	}
 
 	burl := fmt.Sprintf("https://%s/api/v1/repos/%s/issues", repodata.RootDest, repodata.NameDest)
@@ -161,11 +288,11 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 		if expt == nil {
 			htmldict = gjson.Parse(rslt)
 			htmltext = htmldict.Get("html_url").String()
-			htmliden = int(htmldict.Get("id").Int())
+			htmliden = int(htmldict.Get("number").Int())
 			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ [#%d] The issue ticket has been moved to %s", issuobjc.Id, htmltext))
 			break
 		} else {
-			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
+			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✗ [#%d] Issue ticket migration failed. %s", issuobjc.Id, expt.Error()))
 		}
 	}
 
@@ -197,7 +324,8 @@ func CreateIssueComment(repodata *item.RepoData, unit *item.CommentData, issuobj
 	}
 	dict, expt := json.Marshal(data)
 	if expt != nil {
-		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
+		slog.Log(nil, slog.LevelError, fmt.Sprintf("✗ [#%d] Issue comment migration failed. %s", issuobjc.Id, expt.Error()))
+		return
 	}
 
 	burl := fmt.Sprintf("https://%s/api/v1/repos/%s/issues/%d/comments", repodata.RootDest, repodata.NameDest, *htmliden)
@@ -212,7 +340,7 @@ func CreateIssueComment(repodata *item.RepoData, unit *item.CommentData, issuobj
 			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ [#%d] The comment has been moved to %s", issuobjc.Id, htmltext))
 			break
 		} else {
-			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✗ [#%d] Migration failed. %s", issuobjc.Id, expt.Error()))
+			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✗ [#%d] Issue comment migration failed. %s", issuobjc.Id, expt.Error()))
 		}
 	}
 }
