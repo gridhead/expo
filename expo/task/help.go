@@ -229,7 +229,7 @@ func VerifyProjects(repodata *item.RepoData) (bool, error) {
 	var bsrc, bdst bool
 	var expt error
 
-	slog.Log(nil, slog.LevelWarn, "○ Verifying source namespace...")
+	slog.Log(nil, slog.LevelWarn, "▷ Verifying source namespace...")
 	srceproj, esrc := VerifySrceProject(repodata)
 	if esrc != nil {
 		bsrc, expt = false, errors.New(fmt.Sprintf("%s", esrc.Error()))
@@ -244,7 +244,7 @@ func VerifyProjects(repodata *item.RepoData) (bool, error) {
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("✓ Source namespace verified"))
 	}
 
-	slog.Log(nil, slog.LevelWarn, "○ Verifying destination namespace...")
+	slog.Log(nil, slog.LevelWarn, "▷ Verifying destination namespace...")
 	destproj, edst := VerifyDestProject(repodata)
 	if edst != nil {
 		bdst, expt = false, errors.New(fmt.Sprintf("%s", edst.Error()))
