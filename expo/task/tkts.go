@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/url"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -73,7 +72,6 @@ func FetchLabelsInfo(repodata *item.RepoData, tktstask *item.TktsTaskData) (bool
 	var quantity int
 	var rsltdict gjson.Result
 	var list []string
-	var waittags sync.WaitGroup
 
 	burl = fmt.Sprintf("https://%s/api/0/%s/tags", repodata.RootSrce, repodata.NameSrce)
 	data, expt = HTTPPagureGetSupplicant(burl, prms, repodata.PasswordSrce, 200)
@@ -88,10 +86,8 @@ func FetchLabelsInfo(repodata *item.RepoData, tktstask *item.TktsTaskData) (bool
 
 	tktstask.LabelMap = make(map[string]int)
 	for _, word := range list {
-		waittags.Add(1)
-		go MoveLabelsOver(repodata, tktstask, &quantity, &word, &waittags)
+		MoveLabelsOver(repodata, tktstask, &quantity, &word)
 	}
-	waittags.Wait()
 
 	if quantity != tktstask.LabelsQuantity {
 		return false, errors.New("Fetching labels failed")
@@ -102,9 +98,7 @@ func FetchLabelsInfo(repodata *item.RepoData, tktstask *item.TktsTaskData) (bool
 	return true, nil
 }
 
-func MoveLabelsOver(repodata *item.RepoData, tktstask *item.TktsTaskData, quantity *int, word *string, waittags *sync.WaitGroup) {
-	defer waittags.Done()
-
+func MoveLabelsOver(repodata *item.RepoData, tktstask *item.TktsTaskData, quantity *int, word *string) {
 	var burl, data, htmltext string
 	var prms url.Values
 	var expt error
@@ -172,8 +166,6 @@ func FetchIssueTicketsFromPage(repodata *item.RepoData, tktstask *item.TktsTaskD
 	if expt != nil {
 		slog.Log(nil, slog.LevelError, fmt.Sprintf("Error occured. %s", expt.Error()))
 	}
-
-	var wait sync.WaitGroup
 
 	// data := string(TempReadFileJSON())
 	data := gjson.Get(dump, "issues")
@@ -244,21 +236,16 @@ func FetchIssueTicketsFromPage(repodata *item.RepoData, tktstask *item.TktsTaskD
 			Comments:    chatobjc,
 		}
 		slog.Log(nil, slog.LevelInfo, fmt.Sprintf("▶ [#%d] %s by %s (%s) with %d comment(s)", issuesObject.Id, issuesObject.Title, issuesObject.User.FullName, issuesObject.User.Name, len(issuesObject.Comments)))
-		wait.Add(1)
-		go CreateIssueTicket(repodata, tktstask, &issuesObject, quantity, &wait)
+		CreateIssueTicket(repodata, tktstask, &issuesObject, quantity)
 	}
-	wait.Wait()
 }
 
-func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, issuobjc *item.IssueTicketData, quantity *int, wait *sync.WaitGroup) {
-	defer wait.Done()
-
+func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, issuobjc *item.IssueTicketData, quantity *int) {
 	var htmldict gjson.Result
 	var htmltext string
 	var htmliden, chatnumb int
 	var expt error
 	var dict []byte
-	var waitchat sync.WaitGroup
 	var tgidlist []int
 	//var work bool
 
@@ -311,10 +298,8 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 	if tktstask.WithComments {
 		for numb, unit := range issuobjc.Comments {
 			slog.Log(nil, slog.LevelInfo, fmt.Sprintf("▷ [#%d] Comment %d of %d by %s (%s)", issuobjc.Id, numb+1, len(issuobjc.Comments), unit.User.FullName, unit.User.Name))
-			waitchat.Add(1)
-			go CreateIssueComment(repodata, &unit, issuobjc, &htmliden, &tktstask.Retries, &chatnumb, &waitchat)
+			CreateIssueComment(repodata, &unit, issuobjc, &htmliden, &tktstask.Retries, &chatnumb)
 		}
-		waitchat.Wait()
 
 		if chatnumb == len(issuobjc.Comments) {
 			*quantity++
@@ -324,9 +309,7 @@ func CreateIssueTicket(repodata *item.RepoData, tktstask *item.TktsTaskData, iss
 	}
 }
 
-func CreateIssueComment(repodata *item.RepoData, unit *item.CommentData, issuobjc *item.IssueTicketData, htmliden *int, retries *int, chatnumb *int, waitchat *sync.WaitGroup) {
-	defer waitchat.Done()
-
+func CreateIssueComment(repodata *item.RepoData, unit *item.CommentData, issuobjc *item.IssueTicketData, htmliden *int, retries *int, chatnumb *int) {
 	var htmldict gjson.Result
 	var htmltext string
 	var expt error
