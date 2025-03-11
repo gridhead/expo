@@ -125,6 +125,8 @@ func HTTPPagureGetSupplicant(base string, prms url.Values, password string, want
 		return "", rqex
 	}
 
+	slog.Log(nil, slog.LevelDebug, "Waiting for a couple of seconds before continuing")
+	time.Sleep(2 * time.Second)
 	return string(body), nil
 }
 
@@ -165,6 +167,8 @@ func HTTPForgejoPostSupplicant(base string, data string, password string, want i
 		return "", rqex
 	}
 
+	slog.Log(nil, slog.LevelDebug, "Waiting for a couple of seconds before continuing")
+	time.Sleep(2 * time.Second)
 	return string(body), nil
 }
 
